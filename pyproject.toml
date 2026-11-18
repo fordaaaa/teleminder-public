@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "teleminder"
+version = "0.1.0"
+description = "Private Telegram task manager with authenticated MCP access"
+requires-python = ">=3.12"
+dependencies = [
+  "mcp>=1.26,<2",
+  "python-telegram-bot>=22.5,<23",
+  "uvicorn>=0.35,<1",
+  "httpx>=0.28,<1",
+  "python-dotenv>=1.1,<2",
+  "tzdata>=2025.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4,<10", "pytest-asyncio>=1.2,<2", "httpx>=0.28,<1", "ruff>=0.14,<1"]
+
+[project.scripts]
+teleminder = "teleminder.main:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

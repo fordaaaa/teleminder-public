@@ -1,0 +1,7 @@
+# Explicit setup/standalone mode: task tools work; Telegram/scheduling stays off.
+# docker compose -f docker-compose.yml -f docker-compose.mcp-only.yml up -d
+services:
+  teleminder:
+    command: ["teleminder", "http"]
+    healthcheck:
+      test: ["CMD", "teleminder", "health", "--mcp-only"]

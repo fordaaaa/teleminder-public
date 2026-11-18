@@ -1,0 +1,42 @@
+# Teleminder — single-service deployment.
+# Binds to loopback by default; front with Tailscale HTTPS Serve for remote MCP access.
+# Never publish 8765 on a public interface.
+
+services:
+  teleminder:
+    build: .
+    image: teleminder:latest
+    container_name: teleminder
+    env_file: .env
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      # Loopback only by default. Override with BIND_ADDRESS in .env if you
+      # genuinely need another bind (e.g. a Tailscale interface IP) — but prefer
+      # Tailscale Serve over exposing the port.
+      - "${BIND_ADDRESS:-127.0.0.1}:8765:8765"
+    volumes:
+      - teleminder-data:/data
+    healthcheck:
+      test: ["CMD", "teleminder", "health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  teleminder-data:
+    name: teleminder-data
