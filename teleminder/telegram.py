@@ -221,6 +221,12 @@ class TelegramInterface:
                 InlineKeyboardButton("💤 Pause all 1h", callback_data="snooze:60"),
             ]
         )
+        rows.extend([
+            [InlineKeyboardButton("➕ Add task", callback_data="action:add"),
+             InlineKeyboardButton("⏰ Set reminder", callback_data="action:remind")],
+            [InlineKeyboardButton("📅 Today", callback_data="action:today"),
+             InlineKeyboardButton("⚙️ Settings", callback_data="action:settings")],
+        ])
         return InlineKeyboardMarkup(rows)
 
     @staticmethod
@@ -241,6 +247,8 @@ class TelegramInterface:
 
     async def _reply(self, update, text: str, reply_markup=None, *, html: bool = False) -> None:
         message = getattr(update, "message", None)
+        if message is None:
+            message = getattr(getattr(update, "callback_query", None), "message", None)
         if message is not None:
             await message.reply_text(
                 text if html else _clip(text),
@@ -558,7 +566,18 @@ class TelegramInterface:
             return
         await query.answer()
         try:
-            if action == "done":
+            if action == "action":
+                prompts = {
+                    "add": "➕ Send /add followed by a task. Example: /add Call the dentist",
+                    "remind": "⏰ Send /remind followed by a time and reminder. Example: /remind 30m Take a break",
+                }
+                if value == "today":
+                    await self._cmd_today(query, [])
+                elif value == "settings":
+                    await self._cmd_settings(query, [])
+                else:
+                    await query.message.reply_text(prompts[value])
+            elif action == "done":
                 self.service.complete_task(value)
                 await self._refresh_callback_message(query, "✅ Completed")
             elif action == "refresh":
@@ -643,6 +662,8 @@ class TelegramInterface:
             return None, None
         if data in ("refresh", "resume"):
             return data, None
+        if data in ("action:add", "action:remind", "action:today", "action:settings"):
+            return "action", data.split(":", 1)[1]
         match = _DONE_RE.fullmatch(data)
         if match and (identifier := _parse_id(match.group(1))) is not None:
             return "done", identifier
