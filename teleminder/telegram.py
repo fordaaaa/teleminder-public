@@ -112,13 +112,36 @@ def _parse_iso(value) -> datetime | None:
 
 
 class TelegramInterface:
-    def __init__(self, settings, service):
+    def __init__(self, settings, service, *, application=None):
         self._send_lock = asyncio.Lock()
         self._last_send = 0.0
         self.settings = settings
         self.service = service
-        self.application = Application.builder().token(settings.telegram_bot_token).build()
-        self.register_handlers()
+        self._profiles: dict[int, TelegramInterface] = {}
+        if application is None:
+            self.application = Application.builder().token(settings.telegram_bot_token).build()
+            self.register_handlers()
+        else:
+            self.application = application
+
+    def add_profile(self, settings, service) -> TelegramInterface:
+        profile = TelegramInterface(settings, service, application=self.application)
+        self._profiles[settings.telegram_chat_id] = profile
+        return profile
+
+    @staticmethod
+    def _private_user_id(update) -> int | None:
+        chat = getattr(update, "effective_chat", None)
+        user = getattr(update, "effective_user", None)
+        user_id = getattr(user, "id", None)
+        if (
+            type(user_id) is int
+            and user_id > 0
+            and getattr(chat, "type", None) == "private"
+            and getattr(chat, "id", None) == user_id
+        ):
+            return user_id
+        return None
 
     # ------------------------------------------------------------------
     # registration / errors
@@ -154,7 +177,15 @@ class TelegramInterface:
         message = getattr(update, "message", None)
         if message is not None:
             try:
-                await message.reply_text("Not authorized.")
+                words = (message.text or "").split()
+                command = words[0].split("@", 1)[0].lower() if words else ""
+                user_id = self._private_user_id(update)
+                if command == "/start" and user_id is not None:
+                    await message.reply_text(
+                        f"Ask the bot owner to add your Telegram user ID: {user_id}."
+                    )
+                else:
+                    await message.reply_text("Not authorized.")
             except Exception as exc:  # never leak internals
                 logger.error("Telegram reply failed: %s", type(exc).__name__)
 
@@ -221,12 +252,18 @@ class TelegramInterface:
                 InlineKeyboardButton("💤 Pause all 1h", callback_data="snooze:60"),
             ]
         )
-        rows.extend([
-            [InlineKeyboardButton("➕ Add task", callback_data="action:add"),
-             InlineKeyboardButton("⏰ Set reminder", callback_data="action:remind")],
-            [InlineKeyboardButton("📅 Today", callback_data="action:today"),
-             InlineKeyboardButton("⚙️ Settings", callback_data="action:settings")],
-        ])
+        rows.extend(
+            [
+                [
+                    InlineKeyboardButton("➕ Add task", callback_data="action:add"),
+                    InlineKeyboardButton("⏰ Set reminder", callback_data="action:remind"),
+                ],
+                [
+                    InlineKeyboardButton("📅 Today", callback_data="action:today"),
+                    InlineKeyboardButton("⚙️ Settings", callback_data="action:settings"),
+                ],
+            ]
+        )
         return InlineKeyboardMarkup(rows)
 
     @staticmethod
@@ -260,6 +297,10 @@ class TelegramInterface:
     # commands
     # ------------------------------------------------------------------
     async def command(self, update, context) -> None:
+        profile = self._profiles.get(self._private_user_id(update))
+        if profile is not None:
+            await profile.command(update, context)
+            return
         if not self._authorized(update):
             await self._deny_command(update)
             return
@@ -323,6 +364,7 @@ class TelegramInterface:
             "<code>/pause</code> — pause until you <code>/resume</code>\n\n"
             "<b>Tasks</b>\n/add TITLE · /done ID · /list [page] · /today · /settings\n\n"
             f"<i>Local times use {safe_text(self._tz().key, 100)}. Daily/weekly reminders repeat until completed. Delivery can take about 10 seconds.</i>",
+            reply_markup=self._keyboard([]),
             html=True,
         )
 
@@ -481,9 +523,7 @@ class TelegramInterface:
             offset = (page - 1) * PAGE_SIZE
             tasks = self.service.list_tasks(limit=PAGE_SIZE, offset=offset)
         text = self._render_list(tasks, total, page, pages)
-        await self._reply(
-            update, text, reply_markup=self._keyboard(tasks) if tasks else None, html=True
-        )
+        await self._reply(update, text, reply_markup=self._keyboard(tasks), html=True)
 
     async def _cmd_today(self, update, args) -> None:
         tz = self._tz()
@@ -553,6 +593,10 @@ class TelegramInterface:
     # callbacks
     # ------------------------------------------------------------------
     async def callback(self, update, context) -> None:
+        profile = self._profiles.get(self._private_user_id(update))
+        if profile is not None:
+            await profile.callback(update, context)
+            return
         query = getattr(update, "callback_query", None)
         if query is None:
             return
@@ -698,7 +742,7 @@ class TelegramInterface:
         text = self._render_list(tasks, total)
         if notice:
             text = f"<b>{safe_text(notice, 150)}</b>\n\n" + text
-        await self._edit_query(query, text, self._keyboard(tasks) if tasks else None)
+        await self._edit_query(query, text, self._keyboard(tasks))
 
     # ------------------------------------------------------------------
     # digest / reminder delivery

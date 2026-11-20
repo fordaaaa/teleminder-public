@@ -245,3 +245,55 @@ def test_invalid_owner_id_rejected(monkeypatch):
     monkeypatch.setenv("TELEGRAM_USER_ID", "-1")
     with pytest.raises(ValueError):
         Settings.from_env()
+
+
+def test_additional_profile_ids_are_explicit_and_do_not_expand_owner_access(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_USER_ID", "111")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:example-token")
+    monkeypatch.setenv("TELEGRAM_PROFILE_USER_IDS", " 222,333,222 ")
+    settings = Settings.from_env()
+    settings.validate_worker()
+    assert settings.telegram_profile_user_ids == frozenset({222, 333})
+    assert settings.allowed_user_ids == settings.allowed_chat_ids == frozenset({111})
+
+
+@pytest.mark.parametrize("profile_id", [0, -1, 2**63, True])
+def test_profile_ids_must_be_positive_signed_64_bit_integers(profile_id):
+    settings = Settings(
+        telegram_bot_token="123:example-token",
+        telegram_chat_id=111,
+        allowed_user_ids=frozenset({111}),
+        allowed_chat_ids=frozenset({111}),
+        telegram_profile_user_ids=frozenset({profile_id}),
+    )
+    with pytest.raises(ValueError, match="profile"):
+        settings.validate_worker()
+
+
+@pytest.mark.parametrize(
+    ("owner", "users", "chats", "profiles"),
+    [
+        (111, {111}, {111}, {111}),
+        (-111, {111}, {-111}, {222}),
+        (111, {111, 333}, {111}, {222}),
+        (111, {111}, {111, 333}, {222}),
+        (111, {333}, {111}, {222}),
+    ],
+)
+def test_profiles_require_a_distinct_single_private_owner(owner, users, chats, profiles):
+    settings = Settings(
+        telegram_bot_token="123:example-token",
+        telegram_chat_id=owner,
+        allowed_user_ids=frozenset(users),
+        allowed_chat_ids=frozenset(chats),
+        telegram_profile_user_ids=frozenset(profiles),
+    )
+    with pytest.raises(ValueError, match="profile"):
+        settings.validate_worker()
+
+
+def test_default_mcp_only_settings_have_no_profiles(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_PROFILE_USER_IDS", raising=False)
+    monkeypatch.delenv("TELEGRAM_USER_ID", raising=False)
+    settings = Settings.from_env()
+    assert settings.telegram_profile_user_ids == frozenset()

@@ -78,6 +78,16 @@ settings - Show or change notification settings
 ```
 
 
+## Add a Telegram user
+
+1. Have the person open a private chat with the bot and send `/start`. The bot shows their Telegram user ID if they haven't been added yet.
+2. In the private server `.env`, keep your existing `TELEGRAM_USER_ID` and set `TELEGRAM_PROFILE_USER_IDS` to their numeric ID. Separate multiple IDs with commas. If you deploy with the companion CLI, include the same setting in its private `~/.teleminder/.env`.
+3. Apply the configuration with `docker compose up -d --force-recreate`. Then have them send `/start` again. They can set reminders with `/remind 10m Take a break` or use the action buttons.
+
+Each added user starts with an empty profile. Their tasks, reminders, and notification settings are private to their Telegram chat. The original database and MCP endpoint belong to the owner. Keep the owner ID fixed when adding profiles because the original database follows that setting.
+
+Profile databases are stored beside the owner database in a directory named after the database file with a `.profiles` suffix. Include that directory in your backup plan. Removing an ID from the list disables that profile's Telegram access and scheduled deliveries. Adding the same ID again reopens its saved profile.
+
 ## Explicit MCP-only mode
 
 To manage tasks before Telegram credentials are configured:

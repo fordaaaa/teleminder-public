@@ -18,6 +18,7 @@ class Settings:
     telegram_chat_id: int = 0
     allowed_user_ids: frozenset[int] = frozenset()
     allowed_chat_ids: frozenset[int] = frozenset()
+    telegram_profile_user_ids: frozenset[int] = frozenset()
     timezone: str = "America/Toronto"
     database_path: str = "data/teleminder.sqlite"
     mcp_token: str = field(default="", repr=False)
@@ -54,6 +55,7 @@ class Settings:
             else int(os.getenv("TELEGRAM_CHAT_ID", "0")),
             allowed_user_ids=frozenset({owner}) if owner is not None else _ids("ALLOWED_USER_IDS"),
             allowed_chat_ids=frozenset({owner}) if owner is not None else _ids("ALLOWED_CHAT_IDS"),
+            telegram_profile_user_ids=_ids("TELEGRAM_PROFILE_USER_IDS"),
             timezone=os.getenv("TIMEZONE", "America/Toronto"),
             database_path=os.getenv("DATABASE_PATH", "data/teleminder.sqlite"),
             mcp_token=os.getenv("MCP_TOKEN", ""),
@@ -86,6 +88,24 @@ class Settings:
             raise ValueError("TELEGRAM_CHAT_ID must be in ALLOWED_CHAT_IDS")
         if any(x <= 0 for x in self.allowed_user_ids):
             raise ValueError("Allowed user IDs must be positive")
+        if self.telegram_profile_user_ids:
+            if any(
+                type(user_id) is not int or not 0 < user_id <= 2**63 - 1
+                for user_id in self.telegram_profile_user_ids
+            ):
+                raise ValueError(
+                    "Telegram profile user IDs must be positive signed 64-bit integers"
+                )
+            owner = self.telegram_chat_id
+            if (
+                owner <= 0
+                or self.allowed_user_ids != frozenset({owner})
+                or self.allowed_chat_ids != frozenset({owner})
+                or owner in self.telegram_profile_user_ids
+            ):
+                raise ValueError(
+                    "Telegram profiles require a distinct owner with private chat access"
+                )
 
     def validate_remote(self) -> None:
         if len(self.mcp_token) < 32 or self.mcp_token.strip() != self.mcp_token:

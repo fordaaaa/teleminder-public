@@ -12,6 +12,7 @@ import sys
 import tempfile
 import uuid
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -96,10 +97,29 @@ def make_service(settings: Settings) -> TaskService:
     )
 
 
-async def serve(settings: Settings, service: TaskService) -> None:
+def make_telegram_profiles(settings: Settings, service: TaskService) -> list[TelegramInterface]:
     settings.validate_worker()
+    owner = TelegramInterface(settings, service)
+    profiles = [owner]
+    database = Path(service.database_path)
+    profile_directory = database.with_name(database.name + ".profiles")
+    for user_id in sorted(settings.telegram_profile_user_ids):
+        profile_settings = replace(
+            settings,
+            telegram_chat_id=user_id,
+            allowed_user_ids=frozenset({user_id}),
+            allowed_chat_ids=frozenset({user_id}),
+            telegram_profile_user_ids=frozenset(),
+            database_path=str(profile_directory / f"{user_id}.sqlite"),
+        )
+        profiles.append(owner.add_profile(profile_settings, make_service(profile_settings)))
+    return profiles
+
+
+async def serve(settings: Settings, service: TaskService) -> None:
     settings.validate_remote()
-    telegram = TelegramInterface(settings, service)
+    profiles = make_telegram_profiles(settings, service)
+    telegram = profiles[0]
     stop = asyncio.Event()
     fatal_polling = asyncio.Event()
 
@@ -119,7 +139,8 @@ async def serve(settings: Settings, service: TaskService) -> None:
     )
     server = uvicorn.Server(config)
     async with telegram.application:
-        await telegram.configure_menu()
+        for profile in profiles:
+            await profile.configure_menu()
         await telegram.application.start()
         try:
             await telegram.application.updater.start_polling(
@@ -129,12 +150,15 @@ async def serve(settings: Settings, service: TaskService) -> None:
                 error_callback=polling_error,
             )
             service.heartbeat()
-            scheduler = asyncio.create_task(Scheduler(service, telegram).run(stop))
+            schedulers = [
+                asyncio.create_task(Scheduler(profile.service, profile).run(stop))
+                for profile in profiles
+            ]
             http_server = asyncio.create_task(server.serve())
             polling_failed = asyncio.create_task(fatal_polling.wait())
             try:
                 done, _ = await asyncio.wait(
-                    [scheduler, http_server, polling_failed], return_when=asyncio.FIRST_COMPLETED
+                    [*schedulers, http_server, polling_failed], return_when=asyncio.FIRST_COMPLETED
                 )
                 if polling_failed in done:
                     raise RuntimeError("Telegram polling stopped: token conflict or invalid token")
@@ -144,7 +168,9 @@ async def serve(settings: Settings, service: TaskService) -> None:
                 stop.set()
                 server.should_exit = True
                 polling_failed.cancel()
-                await asyncio.gather(scheduler, http_server, polling_failed, return_exceptions=True)
+                await asyncio.gather(
+                    *schedulers, http_server, polling_failed, return_exceptions=True
+                )
         finally:
             if telegram.application.updater.running:
                 await telegram.application.updater.stop()
