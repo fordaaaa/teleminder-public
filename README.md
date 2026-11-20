@@ -4,6 +4,7 @@ A personal Telegram task manager with persistent reminders and thirteen MCP tool
 
 Python 3.12+, official `mcp.server.fastmcp` SDK, python-telegram-bot, SQLite, and a small persistent scheduler. No external database or AI subscription is required by the service. AI clients supply their own models.
 
+See [verification](plans/verification.md) for how to check a deployment with your own bot.
 
 ## macOS companion
 
@@ -31,6 +32,17 @@ To install the CLI on a new Mac from this repository:
 uv tool install --python 3.12 --constraints requirements.lock .
 ```
 
+Create `~/.teleminder/deployment.json` using your SSH target, the absolute path to your server checkout, and the URL of your MCP endpoint. For example:
+
+```json
+{
+  "ssh_target": "operator@server.example",
+  "remote_directory": "/srv/teleminder",
+  "mcp_url": "https://homelab.example.ts.net/mcp"
+}
+```
+
+Set the directory to mode 700 and the files inside it to mode 600. `teleminder client config` shows the file path. Keep deployment metadata, credentials, and Telegram IDs out of source control.
 
 ## Setup
 
@@ -202,7 +214,9 @@ Use the current `mcp.servers` layout in global `~/.config/opencode/opencode.json
 }
 ```
 
+Store your MCP credential in the referenced private file with mode 600. Run `opencode reload`, then `opencode mcp list` to check the connection. Official [OpenCode MCP configuration](https://opencode.ai/docs/mcp-servers/) and [file substitution](https://opencode.ai/docs/config/#files) describe the supported syntax.
 
+Reopen Codex and Claude Code after updating their `TELEMINDER_MCP_TOKEN` environment variable. Merge the examples into your existing client configuration and keep copies under your private configuration directory.
 
 ### Local stdio
 
@@ -251,7 +265,7 @@ Agents translate natural language into tool parameters with explicit date offset
 | `update_task` | `task_id`, `changes` object; explicit null clears due_at/recurrence |
 | `complete_task` | Idempotent completion; retains history and creates a recurring successor |
 | `delete_task` | Permanently removes the task and its reminders |
-| `set_task_reminder` | Replaces active reminder; aware `when`, optional calendar recurrence |
+| `set_task_reminder` | Replaces active reminder; aware `when`, optional hourly, daily, weekly, or monthly recurrence |
 | `list_reminders` | All reminders, including disabled/canceled history; optional task ID |
 | `snooze_reminder` | Snooze one active task until an aware timestamp; preserve cadence |
 | `cancel_reminder` | Cancel task reminders without deleting or completing the task |
@@ -316,6 +330,7 @@ See [.env.example](.env.example). All credentials come from the environment; Com
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Required BotFather token for worker |
 | `TELEGRAM_USER_ID` | Personal owner ID; derives private chat and both allowlists |
+| `TELEGRAM_PROFILE_USER_IDS` | Comma-separated IDs for additional private Telegram profiles |
 | `TELEGRAM_CHAT_ID`, `ALLOWED_USER_IDS`, `ALLOWED_CHAT_IDS` | Optional advanced mode when owner ID is omitted |
 | `MCP_TOKEN` | Required for HTTP; at least 32 characters |
 | `MCP_ALLOWED_HOSTS` | Exact remote DNS hosts; localhost always allowed |
@@ -371,6 +386,8 @@ Restore validates integrity/schema, migrates supported older backups in an isola
 Compose uses a non-root runtime user, read-only root filesystem, dropped capabilities, `no-new-privileges`, bounded log rotation and a persistent local volume. Native CLI sets a private umask. Tokens, message bodies, task titles, and request URLs are excluded from application logs. Anyone with the MCP token can read/modify this personal task database. Rotate leaked credentials and recreate the service with updated environment values.
 
 ## Development and validation
+
+Keep each commit focused. Use `feat:` for a feature and `fix:` for a correction. Use sample values in documentation and tests.
 
 ```sh
 uv sync --frozen --extra dev --python 3.12

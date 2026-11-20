@@ -9,6 +9,13 @@ docker-compose.yml
 .env
 .env.*
 !.env.example
+.teleminder/
+.teleminder-config-backup.*/
+.teleminder-release.lock
+deployment.json
+mcp-token
+.mcp.json
+.serena/
 
 # Python build/test artifacts
 .venv/
@@ -25,6 +32,9 @@ data/
 backups/
 *.sqlite*
 *.db*
+*.profiles/
+*.worker.lock
+*.access.lock
 
 # Project docs and tests not needed at runtime
 plans/

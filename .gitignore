@@ -1,6 +1,13 @@
 .env
 .env.*
 !.env.example
+.teleminder/
+.teleminder-config-backup.*/
+.teleminder-release.lock
+deployment.json
+mcp-token
+.mcp.json
+.serena/
 .venv/
 __pycache__/
 *.py[cod]
@@ -8,6 +15,9 @@ __pycache__/
 .ruff_cache/
 *.sqlite*
 *.db*
+*.profiles/
+*.worker.lock
+*.access.lock
 data/
 backups/
 dist/

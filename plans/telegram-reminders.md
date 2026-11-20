@@ -1,6 +1,6 @@
 # Telegram reminder controls and message refinement
 
-This document records the original reminder controls design.
+This document records the original design for manual reminder creation, snooze and cancellation in Telegram.
 
 ## Acceptance
 1. Authorized Telegram users can create reminders with relative durations, local dates/times and daily/weekly schedules; malformed or past input does not create orphan tasks.
@@ -22,4 +22,4 @@ Service additions:
 `cancel_task_reminders(task_id:int)->{'task_id':int,'cancelled':int}` validates task exists, disables and marks all prior rows canceled, does not complete/delete task. Return number of previously enabled rows disabled.
 Schema v3: add reminders.cancelled INTEGER NOT NULL DEFAULT0. Reminders returned with boolean cancelled. set_task_reminder marks old rows canceled; complete_task inherits only latest non-canceled reminder, preserving existing fired-one-shot inheritance for non-canceled history. New successor defaults canceled false. No destructive migration. Existing tests remain intact.
 
-MCP: add `snooze_reminder(task_id,when)` and `cancel_reminder(task_id)`, strict IDs, service validation. Update exact tool-count tests/smokes from11 to13 as intentional capability expansion. No calls/paid provider integration in this change; explain official Telegram limitation and options.
+MCP: add `snooze_reminder(task_id,when)` and `cancel_reminder(task_id)`, strict IDs, service validation. Update exact tool-count tests/smokes from11 to13 as intentional capability expansion.

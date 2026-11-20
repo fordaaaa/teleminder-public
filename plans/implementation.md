@@ -1,6 +1,6 @@
 # Teleminder implementation contract
 
-This document records the original implementation contract.
+This document records the original scope and design of Teleminder. See the README for the current setup and commands.
 
 ## Acceptance criteria
 1. SQLite task CRUD persists across instances; completion is idempotent, completed records retained; daily/weekly/monthly recurring tasks create one successor on completion.
@@ -31,3 +31,9 @@ Datetime input must have explicit timezone offset; stored UTC; reject invalid/am
 `TelegramInterface(settings, service)` owns `application` (PTB Application), `register_handlers()`, async `send_digest()` -> bool, async `command(update, context)`, async `callback(update, context)`. Constructor registers handlers; never starts polling. `send_digest` returns False if empty and send_empty false, else True on send. For scheduler's durable delivery, send_digest is just a transport; no ledger logic here. /settings supports show, on, off, snooze MINUTES. /add syntax title, no natural-language parsing. /done ID. callbacks `done:ID`, `refresh`, `snooze:60`. Authorize both effective_user.id and effective_chat.id for every incoming update. async `on_error` logs only exception type. Digest max 20 tasks per message, show total, provide /list pagination if needed; keep text <=4096 and callbacks <=64 bytes. /list [page] uses 20-item pages.
 `Scheduler(service, telegram)` async tick(now:datetime|None=None) processes durable deliveries; independent worker loop every <=15 seconds; main owns implementation.
 `create_mcp(service, settings, notifier=None)` returns FastMCP; main owns implementation.
+
+## Deployment modes
+
+The default `serve` mode runs the Telegram worker and authenticated MCP. The explicit `http` mode serves MCP without polling Telegram or delivering reminders. Both modes use the same database. The MCP-only Compose override checks HTTP and database health without requiring a worker heartbeat.
+
+`TELEGRAM_USER_ID` configures the owner and their private chat. Additional users configured with `TELEGRAM_PROFILE_USER_IDS` have their own databases and notification settings. The companion CLI loads deployment metadata and credentials from private files, backs up the previous environment, and applies configuration over SSH.
