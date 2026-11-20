@@ -201,6 +201,8 @@ def _validate_backup(snapshot, version: int) -> None:
         snapshot.execute("SELECT recurrence_anchor FROM reminders LIMIT 0")
     if version >= 3:
         snapshot.execute("SELECT cancelled FROM reminders LIMIT 0")
+    if version >= 4:
+        snapshot.execute("SELECT allow_during_quiet_hours FROM reminders LIMIT 0")
     row = snapshot.execute("SELECT value FROM state WHERE key='schedule'").fetchone()
     if not row:
         raise ValueError("Backup missing schedule")

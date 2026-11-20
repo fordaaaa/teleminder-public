@@ -88,6 +88,28 @@ async def test_manual_digest_durable_queue_bypasses_quiet(setup):
     assert telegram.send_digest.await_count == 1
 
 
+async def test_hourly_reminder_can_deliver_during_quiet_hours(setup):
+    service, telegram, scheduler = setup
+    start = "2026-11-17T23:00:00-05:00"
+    task = service.add_task("Hourly checklist")
+    regular = service.add_task("Regular reminder")
+    service.set_task_reminder(regular["id"], start, recurrence="hourly")
+    service.set_task_reminder(task["id"], start, recurrence="hourly", allow_during_quiet_hours=True)
+
+    for when in ("23:00", "23:02", "23:59"):
+        await scheduler.tick(parse_time(f"2026-11-17T{when}:00-05:00"))
+    await scheduler.tick(parse_time("2026-11-18T00:00:00-05:00"))
+    assert [call.args[0]["id"] for call in telegram.send_reminder.await_args_list] == [
+        task["id"],
+        task["id"],
+    ]
+    assert not telegram.send_digest.called
+
+    service.update_schedule(enabled=False)
+    await scheduler.tick(parse_time("2026-11-18T01:00:00-05:00"))
+    assert telegram.send_reminder.await_count == 2
+
+
 @pytest.mark.parametrize(
     "before,expected",
     [

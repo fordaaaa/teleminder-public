@@ -15,17 +15,19 @@ from .timeutil import iso, localize, next_occurrence, parse_time, utcnow
 logger = logging.getLogger(__name__)
 
 
-def notifications_allowed(now: datetime, schedule: dict) -> bool:
+def notifications_paused(now: datetime, schedule: dict) -> bool:
     if not schedule["enabled"]:
-        return False
-    if schedule["snoozed_until"] and now < parse_time(schedule["snoozed_until"]):
-        return False
+        return True
+    return bool(schedule["snoozed_until"] and now < parse_time(schedule["snoozed_until"]))
+
+
+def in_quiet_hours(now: datetime, schedule: dict) -> bool:
     local = now.astimezone(ZoneInfo(schedule["timezone"]))
     start, end = schedule["quiet_start"], schedule["quiet_end"]
     quiet = (
         (start <= local.hour < end) if start < end else (local.hour >= start or local.hour < end)
     )
-    return not quiet if start != end else True  # equal hours disables quiet time
+    return start != end and quiet
 
 
 def digest_slot(now: datetime, schedule: dict) -> tuple[datetime, datetime] | None:
@@ -70,12 +72,14 @@ class Scheduler:
             ).fetchall():
                 claim("manual:" + request["id"])
                 db.execute("UPDATE digest_requests SET processed=1 WHERE id=?", (request["id"],))
-            if not notifications_allowed(now, schedule):
+            if notifications_paused(now, schedule):
                 return events
+            quiet = in_quiet_hours(now, schedule)
             for reminder in db.execute(
                 """SELECT r.* FROM reminders r JOIN tasks t ON t.id=r.task_id
-                WHERE r.enabled=1 AND r.cancelled=0 AND r.next_run<=? AND t.completed_at IS NULL ORDER BY r.next_run LIMIT 10""",
-                (stamp,),
+                WHERE r.enabled=1 AND r.cancelled=0 AND r.next_run<=? AND t.completed_at IS NULL
+                AND (?=0 OR r.allow_during_quiet_hours=1) ORDER BY r.next_run LIMIT 10""",
+                (stamp, quiet),
             ).fetchall():
                 claim(f"reminder:{reminder['id']}:{reminder['next_run']}", reminder["task_id"])
                 if reminder["recurrence"]:
@@ -92,7 +96,7 @@ class Scheduler:
                     )
                 else:
                     db.execute("UPDATE reminders SET enabled=0 WHERE id=?", (reminder["id"],))
-            slots = digest_slot(now, schedule)
+            slots = None if quiet else digest_slot(now, schedule)
             if slots:
                 slot, following = slots
                 row = db.execute("SELECT value FROM state WHERE key='next_digest'").fetchone()

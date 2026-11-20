@@ -7,7 +7,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .database import Database
-from .timeutil import RECURRENCES, iso, next_occurrence, parse_time, utcnow
+from .timeutil import RECURRENCES, REMINDER_RECURRENCES, iso, next_occurrence, parse_time, utcnow
 
 DEFAULT_SCHEDULE = dict(
     timezone="America/Toronto",
@@ -45,7 +45,12 @@ def _task(row) -> dict:
 
 
 def _reminder(row) -> dict:
-    return {**dict(row), "enabled": bool(row["enabled"]), "cancelled": bool(row["cancelled"])}
+    return {
+        **dict(row),
+        "enabled": bool(row["enabled"]),
+        "cancelled": bool(row["cancelled"]),
+        "allow_during_quiet_hours": bool(row["allow_during_quiet_hours"]),
+    }
 
 
 class TaskService:
@@ -133,8 +138,8 @@ class TaskService:
         when_dt = parse_time(when)
         if when_dt <= utcnow():
             raise ValueError("when must be in the future")
-        if not isinstance(recurrence, (str, type(None))) or recurrence not in RECURRENCES:
-            raise ValueError("recurrence must be daily, weekly, monthly or null")
+        if not isinstance(recurrence, (str, type(None))) or recurrence not in REMINDER_RECURRENCES:
+            raise ValueError("recurrence must be hourly, daily, weekly, monthly or null")
         data = dict(
             title=title,
             description="",
@@ -250,14 +255,22 @@ class TaskService:
                 # Carry the latest NON-canceled reminder cadence to the successor.
                 # A one-shot already sent is disabled but still expresses reminder intent.
                 previous = db.execute(
-                    "SELECT recurrence FROM reminders WHERE task_id=? AND cancelled=0"
+                    "SELECT recurrence, allow_during_quiet_hours FROM reminders"
+                    " WHERE task_id=? AND cancelled=0"
                     " ORDER BY id DESC LIMIT 1",
                     (task_id,),
                 ).fetchone()
                 if previous:
                     db.execute(
-                        "INSERT INTO reminders(task_id,next_run,recurrence,recurrence_anchor) VALUES (?,?,?,?)",
-                        (successor, task["due_at"], previous["recurrence"], task["due_at"]),
+                        "INSERT INTO reminders(task_id,next_run,recurrence,recurrence_anchor,"
+                        "allow_during_quiet_hours) VALUES (?,?,?,?,?)",
+                        (
+                            successor,
+                            task["due_at"],
+                            previous["recurrence"],
+                            task["due_at"],
+                            previous["allow_during_quiet_hours"],
+                        ),
                     )
             db.execute("UPDATE tasks SET completed_at=? WHERE id=?", (iso(now), task_id))
             db.execute("UPDATE reminders SET enabled=0 WHERE task_id=?", (task_id,))
@@ -269,10 +282,19 @@ class TaskService:
                 raise ValueError("Task not found")
         return {"deleted": task_id}
 
-    def set_task_reminder(self, task_id: int, when: str, recurrence: str | None = None) -> dict:
+    def set_task_reminder(
+        self,
+        task_id: int,
+        when: str,
+        recurrence: str | None = None,
+        *,
+        allow_during_quiet_hours: bool = False,
+    ) -> dict:
         when = iso(parse_time(when))
-        if not isinstance(recurrence, (str, type(None))) or recurrence not in RECURRENCES:
-            raise ValueError("recurrence must be daily, weekly, monthly or null")
+        if not isinstance(recurrence, (str, type(None))) or recurrence not in REMINDER_RECURRENCES:
+            raise ValueError("recurrence must be hourly, daily, weekly, monthly or null")
+        if type(allow_during_quiet_hours) is not bool:
+            raise ValueError("allow_during_quiet_hours must be boolean")
         with self.db.transaction() as db:
             task = db.execute(
                 "SELECT completed_at FROM tasks WHERE id=?", (valid_id(task_id),)
@@ -282,8 +304,9 @@ class TaskService:
             # Re-setting replaces active reminders, avoiding accidental duplicate schedules.
             db.execute("UPDATE reminders SET enabled=0, cancelled=1 WHERE task_id=?", (task_id,))
             reminder_id = db.execute(
-                "INSERT INTO reminders(task_id,next_run,recurrence,recurrence_anchor) VALUES (?,?,?,?)",
-                (task_id, when, recurrence, when),
+                "INSERT INTO reminders(task_id,next_run,recurrence,recurrence_anchor,"
+                "allow_during_quiet_hours) VALUES (?,?,?,?,?)",
+                (task_id, when, recurrence, when, allow_during_quiet_hours),
             ).lastrowid
             return _reminder(
                 db.execute("SELECT * FROM reminders WHERE id=?", (reminder_id,)).fetchone()
@@ -308,9 +331,15 @@ class TaskService:
             # Mark every prior row canceled, including already-claimed ones, then insert.
             db.execute("UPDATE reminders SET enabled=0, cancelled=1 WHERE task_id=?", (task_id,))
             reminder_id = db.execute(
-                "INSERT INTO reminders(task_id,next_run,recurrence,recurrence_anchor,enabled,cancelled)"
-                " VALUES (?,?,?,?,1,0)",
-                (task_id, when, cadence, anchor),
+                "INSERT INTO reminders(task_id,next_run,recurrence,recurrence_anchor,"
+                "allow_during_quiet_hours) VALUES (?,?,?,?,?)",
+                (
+                    task_id,
+                    when,
+                    cadence,
+                    anchor,
+                    latest["allow_during_quiet_hours"] if latest else 0,
+                ),
             ).lastrowid
             return _reminder(
                 db.execute("SELECT * FROM reminders WHERE id=?", (reminder_id,)).fetchone()

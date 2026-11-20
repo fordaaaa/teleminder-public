@@ -5,7 +5,7 @@ import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MIGRATION_1 = [
     """CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
        description TEXT NOT NULL, created_at TEXT NOT NULL, due_at TEXT, priority TEXT NOT NULL,
@@ -51,6 +51,11 @@ class Database:
             if version < 3:
                 db.execute("ALTER TABLE reminders ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0")
                 db.execute("PRAGMA user_version=3")
+            if version < 4:
+                db.execute(
+                    "ALTER TABLE reminders ADD COLUMN allow_during_quiet_hours INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execute("PRAGMA user_version=4")
         os.chmod(path, 0o600)
         for suffix in ("-wal", "-shm"):
             sidecar = Path(path + suffix)

@@ -14,6 +14,7 @@ from .service import TaskService
 
 TaskId = Annotated[int, Field(strict=True, gt=0, le=2**63 - 1)]
 Recurrence = Literal["daily", "weekly", "monthly"] | None
+ReminderRecurrence = Literal["hourly", "daily", "weekly", "monthly"] | None
 
 
 def create_mcp(service: TaskService, settings: Settings, notifier=None) -> FastMCP:
@@ -88,11 +89,13 @@ def create_mcp(service: TaskService, settings: Settings, notifier=None) -> FastM
         return service.delete_task(task_id)
 
     @mcp.tool()
-    def set_task_reminder(task_id: TaskId, when: str, recurrence: Recurrence = None) -> dict:
+    def set_task_reminder(
+        task_id: TaskId, when: str, recurrence: ReminderRecurrence = None
+    ) -> dict:
         """Replace active reminders for a task. when: ISO 8601 with timezone offset.
 
-        Optional daily/weekly/monthly repetition follows local calendar time until
-        completion. Missed runs coalesce to one send after quiet hours/snooze ends.
+        Optional hourly repetition follows elapsed time. Daily/weekly/monthly
+        repetition follows local calendar time. Missed runs coalesce into one send.
         """
         return service.set_task_reminder(task_id, when, recurrence)
 

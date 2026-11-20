@@ -74,7 +74,7 @@ def test_create_reminded_task_success(service):
     assert reminder["cancelled"] is False
 
 
-@pytest.mark.parametrize("cadence", ["daily", "weekly", "monthly"])
+@pytest.mark.parametrize("cadence", ["hourly", "daily", "weekly", "monthly"])
 def test_create_reminded_task_with_repeating_reminder(service, cadence):
     result = service.create_reminded_task("Stretch", future_iso(days=1), cadence)
     assert result["reminder"]["recurrence"] == cadence
@@ -111,7 +111,7 @@ def test_create_reminded_task_past_when_creates_nothing(service):
     assert reminder_count(service) == 0
 
 
-@pytest.mark.parametrize("cadence", ["hourly", "DAILY", "week", "dailyy", 123, True])
+@pytest.mark.parametrize("cadence", ["yearly", "DAILY", "week", "dailyy", 123, True])
 def test_create_reminded_task_invalid_cadence_creates_nothing(service, cadence):
     with pytest.raises(ValueError):
         service.create_reminded_task("Bad cadence", future_iso(hours=1), cadence)

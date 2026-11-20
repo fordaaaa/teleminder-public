@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 RECURRENCES = {None, "daily", "weekly", "monthly"}
+REMINDER_RECURRENCES = RECURRENCES | {"hourly"}
 
 
 def utcnow() -> datetime:
@@ -59,6 +60,11 @@ def next_occurrence(value: datetime, recurrence: str, timezone: str, after: date
     Keep the original anchor to preserve month-end days and wall-clock time
     after a short month or a spring-forward gap. First occurrence is anchor+1.
     """
+    if recurrence == "hourly":
+        anchor = value.astimezone(UTC)
+        hour = timedelta(hours=1)
+        count = max(1, (after - anchor) // hour + 1)
+        return anchor + count * hour
     zone = ZoneInfo(timezone)
     anchor = value.astimezone(zone).replace(tzinfo=None)
     local_after = after.astimezone(zone).replace(tzinfo=None)
