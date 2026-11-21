@@ -9,7 +9,7 @@ from pydantic import Field
 from starlette.responses import JSONResponse
 
 from .config import Settings
-from .diagnostics import status
+from .diagnostics import is_ready
 from .service import TaskService
 
 TaskId = Annotated[int, Field(strict=True, gt=0, le=2**63 - 1)]
@@ -178,8 +178,7 @@ def create_http_app(service: TaskService, settings: Settings, *, require_worker:
     @mcp.custom_route("/healthz", methods=["GET"])
     async def health(request):
         try:
-            diagnostics = status(service)
-            healthy = diagnostics["healthy" if require_worker else "database_healthy"]
+            healthy = is_ready(service, require_worker=require_worker)
         except Exception:
             healthy = False
         payload = {"status": "ok" if healthy else "unhealthy"}

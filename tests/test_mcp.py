@@ -128,6 +128,34 @@ async def test_mcp_only_health_is_explicit_and_default_still_requires_worker(set
             assert (await client.post("/mcp", json={})).status_code == 401
 
 
+async def test_public_health_uses_indexed_state_reads(setup, monkeypatch):
+    service, settings = setup
+    service.heartbeat()
+    from contextlib import contextmanager
+
+    connection = service.db.connection
+    statements = []
+
+    @contextmanager
+    def traced_connection():
+        with connection() as db:
+            db.set_trace_callback(statements.append)
+            yield db
+
+    monkeypatch.setattr(service.db, "connection", traced_connection)
+    app = create_http_app(service, settings)
+    async with (
+        app.app.router.lifespan_context(app.app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://localhost:8765"
+        ) as client,
+    ):
+        response = await client.get("/healthz")
+    assert response.status_code == 200
+    assert {"status": "ok"} == response.json()
+    assert all("quick_check" not in sql and "deliveries" not in sql for sql in statements)
+
+
 async def test_mcp_snooze_and_cancel_share_durable_reminder_controls(setup):
     service, settings = setup
     task = service.add_task("MCP snooze")
