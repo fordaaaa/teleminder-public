@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 
-from teleminder.telegram_views import render_reminder, render_tasks
+from teleminder.telegram_views import render_reminder, render_tasks, task_line
 
 
 def task(title="test", description="Try the snooze buttons."):
@@ -22,7 +22,7 @@ class Balanced(HTMLParser):
         self.stack = []
 
     def handle_starttag(self, tag, attrs):
-        assert tag in {"b", "i", "code"}
+        assert tag in {"b", "i", "code", "s"}
         self.stack.append(tag)
 
     def handle_endtag(self, tag):
@@ -66,3 +66,14 @@ def test_empty_list_is_still_a_useful_message():
     text = render_tasks([], 0, 1, 1, "America/Toronto")
     assert "No pending tasks" in text
     assert_safe(text)
+
+
+def test_task_status_is_clear_without_color():
+    now = datetime(2026, 11, 18, 16, tzinfo=UTC)
+    overdue = task_line(task(), "America/Toronto", now)
+    completed = task_line({**task(), "completed_at": now.isoformat()}, "America/Toronto", now)
+    assert "Overdue" in overdue
+    assert "<s>test</s>" in completed
+    assert "Overdue" not in completed
+    assert_safe(overdue)
+    assert_safe(completed)

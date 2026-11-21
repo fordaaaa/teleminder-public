@@ -346,7 +346,7 @@ class TelegramInterface:
     async def _cmd_help(self, update, args) -> None:
         await self._reply(
             update,
-            "<b>⏰ Your reminder desk</b>\n\n"
+            "<b>Tasks and reminders</b>\n\n"
             "<b>Set a reminder</b>\n"
             "<code>/remind 10m Take a break</code>\n"
             "<code>/remind tomorrow 09:00 Review notes</code>\n"

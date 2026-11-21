@@ -46,16 +46,21 @@ def task_line(task: dict, timezone: str, now: datetime | None = None) -> str:
     due_at = task.get("due_at")
     stamp = now or datetime.now(UTC)
     overdue = bool(due_at and not completed and parse_time(due_at) < stamp)
-    icon = "✅" if completed else "🔴" if overdue else priority(task).split(" ", 1)[0]
+    if completed:
+        icon = "✅"
+    elif overdue:
+        icon = "🔴"
+    else:
+        icon = priority(task).split(" ", 1)[0]
     title = safe_text(" ".join(str(task.get("title", "")).split()), 70)
     identifier = safe_text(task.get("id"), 24)
     if completed:
         title = f"<s>{title}</s>"
-    due = (
-        f"\n   <i>{safe_text(local_time(due_at, timezone, stamp), 70)}</i>"
-        if due_at
-        else ""
-    )
+    due = ""
+    if due_at:
+        timestamp = safe_text(local_time(due_at, timezone, stamp), 70)
+        label = "Overdue · " if overdue else ""
+        due = f"\n   <i>{label}{timestamp}</i>"
     return f"{icon} <b>{title}</b> <code>#{identifier}</code>{due}"
 
 
@@ -71,7 +76,7 @@ def render_tasks(
     page_command: str = "list",
 ) -> str:
     if not tasks:
-        return "✅ <b>All caught up</b>\n\nNo pending tasks.\n<i>Add one with /add or /remind.</i>"
+        return "<b>No pending tasks</b>\n\nUse /add for a task or /remind for a timed reminder."
     stamp = now or datetime.now(UTC)
     header = f"📋 <b>{safe_text(heading, 60)}</b>\n<i>{total} remaining · page {page}/{pages}</i>"
     lines = [task_line(task, timezone, stamp) for task in tasks[:20]]
@@ -83,10 +88,12 @@ def render_tasks(
 
 def render_reminder(task: dict, timezone: str, now: datetime | None = None) -> str:
     title = safe_text(task.get("title"), 600)
-    parts = ["🔔 <b>Time for a reminder</b>", f"<b>{title}</b>"]
+    parts = ["🔔 <b>Reminder</b>", f"<b>{title}</b>"]
     if task.get("description"):
         parts.append(safe_text(task["description"], 700))
-    details = f"🕒 <b>{safe_text(local_time(task.get('due_at'), timezone, now), 100)}</b>\n{priority(task)} · <code>#{safe_text(task.get('id'), 24)}</code>"
+    timestamp = safe_text(local_time(task.get("due_at"), timezone, now), 100)
+    identifier = safe_text(task.get("id"), 24)
+    details = f"🕒 <b>{timestamp}</b>\n{priority(task)} · <code>#{identifier}</code>"
     parts.append(details)
     tags = task.get("tags") or []
     if tags:
@@ -99,6 +106,4 @@ def render_scheduled(task: dict, reminder: dict, timezone: str, *, snoozed: bool
     text = f"<b>{heading}</b>\n\n<b>{safe_text(task['title'], 600)}</b>\n\n🕒 {safe_text(local_time(reminder['next_run'], timezone), 100)}\n<code>#{task['id']}</code>"
     if reminder.get("recurrence"):
         text += f"\n<i>Repeats {safe_text(reminder['recurrence'], 20)} until completed.</i>"
-    if snoozed:
-        text += "\n\n<i>Only this task was snoozed.</i>"
     return text
