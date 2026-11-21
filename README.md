@@ -1,10 +1,55 @@
 # Teleminder
 
-A personal Telegram task manager with persistent reminders and thirteen MCP tools. Runs continuously on your home server, including when your laptop is off. Telegram uses long polling: no webhook or public port is needed. AI clients connect through your tailnet using authenticated Streamable HTTP, or locally over stdio.
+Teleminder is a self-hosted Telegram bot for tasks and reminders. Set a reminder from your chat with `/remind 30m Call the dentist`, mark tasks done with a button, or connect an assistant through MCP.
 
-Python 3.12+, official `mcp.server.fastmcp` SDK, python-telegram-bot, SQLite, and a small persistent scheduler. No external database or AI subscription is required by the service. AI clients supply their own models.
+Each private Telegram profile has its own tasks and settings. Teleminder stores data in SQLite and keeps delivering reminders while your computer is off, as long as the server is running.
 
-See [verification](plans/verification.md) for how to check a deployment with your own bot.
+- [Set up the bot](#setup)
+- [Add another user](#add-a-telegram-user)
+- [Connect an MCP client](#connect-mcp-clients)
+- [Contribute](CONTRIBUTING.md)
+
+## Setup
+
+Install Docker Engine and Docker Compose on the server. Clone this repository there before you begin.
+
+1. In Telegram, send `/newbot` to [@BotFather](https://t.me/BotFather). Save the token, then open your bot's private chat and send `/start`.
+2. Copy configuration and fill in the token:
+
+   ```sh
+   cp .env.example .env
+   chmod 600 .env
+   # Edit TELEGRAM_BOT_TOKEN in .env. Do not commit this file.
+   ```
+
+3. Find your user/chat IDs with your own bot, without a third-party lookup service. With [uv](https://docs.astral.sh/uv/) installed:
+
+   ```sh
+   uv sync --frozen --extra dev --python 3.12
+   uv run python scripts/telegram_ids.py
+   ```
+
+   Stop any running Teleminder worker before running the script. Set the printed user ID as `TELEGRAM_USER_ID` in `.env`. If the script finds no updates, send `/start` again. For a separate user profile, follow the next section.
+
+4. Generate a separate secret with `openssl rand -hex 32` and save it as `MCP_TOKEN` in `.env`. Set `MCP_ALLOWED_HOSTS` if you enable [remote MCP access](#deploy-through-tailscale).
+5. Build and run on the home server:
+
+   ```sh
+   docker compose up -d --build
+   docker compose exec teleminder teleminder health
+   ```
+
+6. Send `/remind 1m Test reminder` to the bot. When it arrives, tap **Done**. See [deployment verification](plans/verification.md) for the MCP and profile checks.
+
+## Add a Telegram user
+
+1. Have the person open a private chat with the bot and send `/start`. The bot shows their Telegram user ID if they haven't been added yet.
+2. In the private server `.env`, keep your existing `TELEGRAM_USER_ID` and set `TELEGRAM_PROFILE_USER_IDS` to their numeric ID. Separate multiple IDs with commas. If you deploy with the companion CLI, include the same setting in its private `~/.teleminder/.env`.
+3. Apply the configuration with `docker compose up -d --force-recreate`. Then have them send `/start` again. They can set reminders with `/remind 10m Take a break` or use the action buttons.
+
+Each added user starts with an empty profile. Their tasks, reminders, and notification settings are private to their Telegram chat. The original database and MCP endpoint belong to the owner. Keep the owner ID fixed when adding profiles because the original database follows that setting.
+
+Profile databases are stored beside the owner database in a directory named after the database file with a `.profiles` suffix. Include that directory in your backup plan. Removing an ID from the list disables that profile's Telegram access and scheduled deliveries. Adding the same ID again reopens its saved profile.
 
 ## macOS companion
 
@@ -44,62 +89,6 @@ Create `~/.teleminder/deployment.json` using your SSH target, the absolute path 
 
 Set the directory to mode 700 and the files inside it to mode 600. `teleminder client config` shows the file path. Keep deployment metadata, credentials, and Telegram IDs out of source control.
 
-## Setup
-
-1. In Telegram, open the official [@BotFather](https://t.me/BotFather), send `/newbot`, and save the returned token privately. Send `/start` to your new bot from your own account. For groups, keep BotFather privacy mode enabled and use only a trusted group.
-2. Copy configuration and fill in the token:
-
-   ```sh
-   cp .env.example .env
-   chmod 600 .env
-   # Edit TELEGRAM_BOT_TOKEN in .env. Do not commit this file.
-   ```
-
-3. Find your user/chat IDs with your own bot, without a third-party lookup service. With [uv](https://docs.astral.sh/uv/) installed:
-
-   ```sh
-   uv sync --frozen --extra dev --python 3.12
-   uv run python scripts/telegram_ids.py
-   ```
-
-   Stop any existing polling worker first. This reads pending updates and prints only IDs. If no updates appear, send `/start` again. In a private chat, user and chat IDs normally match; group chat IDs are negative. Set only `TELEGRAM_USER_ID` in `.env`; the private chat and both allowlists are derived from it. With this setting present, other user/chat allowlists cannot expand access. Advanced group/multi-user mode is optional: omit `TELEGRAM_USER_ID` and explicitly configure `TELEGRAM_CHAT_ID`, `ALLOWED_USER_IDS`, and `ALLOWED_CHAT_IDS` instead. All authorized users then share one task list, and everyone in a target group can read its messages.
-
-4. Generate a separate MCP secret with `openssl rand -hex 32` and put it in `MCP_TOKEN`. Keep the generated value out of source control. Set `MCP_ALLOWED_HOSTS` to your server's full tailnet DNS name, for example `homelab.example.ts.net,homelab.example.ts.net:*`.
-5. Build and run on the home server:
-
-   ```sh
-   docker compose up -d --build
-   docker compose logs -f teleminder
-   docker compose exec teleminder teleminder health
-   ```
-
-   Install Docker Engine and its Compose plugin first. On systems with the standalone Compose executable, replace `docker compose` with `docker-compose`. This repository was validated with standalone Compose.
-
-6. Send `/add Buy milk`, then `/list`. Press **✅ Complete** and confirm the task disappears. Use an AI client to create another task and `send_digest` to check the whole connection. Delivery must be checked with your own Telegram credentials.
-
-Optional BotFather `/setcommands`:
-
-```text
-start - Get started
-help - Show commands
-list - Active tasks, optionally a page number
-add - Add a task title
-done - Complete a task by ID
-today - Tasks due today
-settings - Show or change notification settings
-```
-
-
-## Add a Telegram user
-
-1. Have the person open a private chat with the bot and send `/start`. The bot shows their Telegram user ID if they haven't been added yet.
-2. In the private server `.env`, keep your existing `TELEGRAM_USER_ID` and set `TELEGRAM_PROFILE_USER_IDS` to their numeric ID. Separate multiple IDs with commas. If you deploy with the companion CLI, include the same setting in its private `~/.teleminder/.env`.
-3. Apply the configuration with `docker compose up -d --force-recreate`. Then have them send `/start` again. They can set reminders with `/remind 10m Take a break` or use the action buttons.
-
-Each added user starts with an empty profile. Their tasks, reminders, and notification settings are private to their Telegram chat. The original database and MCP endpoint belong to the owner. Keep the owner ID fixed when adding profiles because the original database follows that setting.
-
-Profile databases are stored beside the owner database in a directory named after the database file with a `.profiles` suffix. Include that directory in your backup plan. Removing an ID from the list disables that profile's Telegram access and scheduled deliveries. Adding the same ID again reopens its saved profile.
-
 ## Explicit MCP-only mode
 
 To manage tasks before Telegram credentials are configured:
@@ -109,11 +98,11 @@ docker compose -f docker-compose.yml -f docker-compose.mcp-only.yml up -d --buil
 docker compose exec teleminder teleminder health --mcp-only
 ```
 
-This runs `teleminder http`, without a Telegram poller or scheduler. `/healthz` reports `mode: mcp-only`; no worker heartbeat is fabricated. All thirteen tools remain authenticated, but reminders and queued `send_digest` requests wait for the full worker. Switch to `docker compose -f docker-compose.yml up -d` after configuring Telegram; the same volume retains tasks and schedules. Do not run full and HTTP-only instances on the same port simultaneously.
+This runs the authenticated MCP server without Telegram polling or scheduled delivery. Tasks stay in the same database when you switch back to `docker compose -f docker-compose.yml up -d`.
 
 ## Deploy through Tailscale
 
-Copy this directory to the home server, excluding `.venv`, local databases, and backups. Create `.env` on that server. Keep the SQLite volume on a **local disk**, not NFS/SMB. Install Tailscale on the server and on the computer running your AI client; connect both to your tailnet.
+Follow [Setup](#setup) on the server. Use a local disk for the SQLite volume. Install Tailscale on the server and your MCP client's computer, then connect both to your tailnet.
 
 The Compose port binds only to `127.0.0.1:8765`. On the server, enable tailnet HTTPS/MagicDNS when prompted and run:
 
@@ -141,11 +130,11 @@ curl -s -o /dev/null -w '%{http_code}\n' https://homelab.example.ts.net/mcp
 # Expected: 401 (missing bearer token)
 ```
 
-`/healthz` intentionally returns only an unauthenticated health boolean. Task tools always require authentication. A `421` from MCP means the requested hostname is missing from `MCP_ALLOWED_HOSTS`. Browser-origin requests are blocked; the supported coding clients do not need browser CORS.
+`/healthz` is an unauthenticated readiness check. It reads the database and checks the worker heartbeat in full mode. Use `teleminder health` or `teleminder status` for a database integrity check. Task tools always require authentication. A `421` from MCP means the requested hostname is missing from `MCP_ALLOWED_HOSTS`. Browser-origin requests are blocked; the supported coding clients do not need browser CORS.
 
 The host needs outbound internet access to Telegram and reliable system time. Tailscale must be connected on the AI client's machine when it accesses remote MCP. Telegram reminders continue without an MCP connection or your personal computer.
 
-## Connect AI agents
+## Connect MCP clients
 
 Set `TELEMINDER_MCP_TOKEN` in the environment of the AI client to the same secret as the server's `MCP_TOKEN`. GUI clients must receive it through their own environment/configuration; a shell export does not automatically reach an already running application. These examples use static bearer headers, not an OAuth login.
 
@@ -405,3 +394,7 @@ uv run python scripts/smoke_http_image.py teleminder:local
 The smoke test uses an ephemeral, network-disabled container with no credentials and exercises the official MCP client against the image's stdio server. Tests cover CRUD, concurrency/idempotence, authorization, callbacks, mocked Telegram HTTP responses, scheduling, DST, migrations, backups, HTTP authentication and both official SDK client transports. [Implementation contract](plans/implementation.md) records architecture and interfaces.
 
 Runtime dependency versions and hashes are exported from `uv.lock` into `requirements.lock`. To deliberately refresh dependencies, run `uv lock --upgrade`, test, then `uv export --format requirements-txt --no-dev --no-emit-project --output-file requirements.lock`. Rebuild images with `--pull` to receive base-image security fixes.
+
+## License
+
+Teleminder is released under the [MIT License](LICENSE).
